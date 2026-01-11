@@ -149,8 +149,21 @@ def compare_boards(golden_lights, test_lights, img, pos_tolerance=60, color_tole
     import numpy as np
     from scipy.spatial import cKDTree
 
-    if not test_lights or not golden_lights:
-        return False, img
+    details = {
+        "total_golden": len(golden_lights),
+        "total_test": len(test_lights) if test_lights else 0,
+        "matches": 0,
+        "accuracy": 0.0,
+        "fail_reasons": []
+    }
+
+    if not test_lights:
+        details["fail_reasons"].append("No lights detected on test board.")
+        return False, img, details
+
+    if not golden_lights:
+        details["fail_reasons"].append("No golden lights provided.")
+        return False, img, details
 
     # Precompute positions and colors
     golden_positions = np.array([(g.x, g.y) for g in golden_lights])
@@ -177,7 +190,8 @@ def compare_boards(golden_lights, test_lights, img, pos_tolerance=60, color_tole
         if idx_match.size > 0:
             golden_idx = candidates[idx_match[0]]
             matches.append(test_lights[i])
-            unmatched.discard(golden_idx)
+            if golden_idx in unmatched:
+                unmatched.discard(golden_idx)
 
     # Draw matched lights in GREEN
     for m in matches:
@@ -190,9 +204,20 @@ def compare_boards(golden_lights, test_lights, img, pos_tolerance=60, color_tole
     for i in unmatched:
         g = golden_lights[i]
         cv2.circle(img, (g.x, g.y), avg_radius, (0, 0, 255), 2)
+        details["fail_reasons"].append(f"Missing/Mismatch at ({g.x}, {g.y})")
+
+    details["matches"] = len(matches)
+    if details["total_golden"] > 0:
+        details["accuracy"] = (len(matches) / details["total_golden"]) * 100
 
     # Board passes if no golden lights left unmatched
-    return len(unmatched) == 0, img
+    passed = (len(unmatched) == 0)
+    
+    if not passed and len(unmatched) == 0:
+         # Edge case: maybe extra lights? but requirement is 'no golden lights left unmatched'
+         pass
+
+    return passed, img, details
 
 
 def run_testing_board(golden_img_path, test_img_path):
@@ -208,12 +233,14 @@ def run_testing_board(golden_img_path, test_img_path):
 
     # Load test image separately for drawing
     img = cv2.imread(test_img_path)
-    passed, marked_img = compare_boards(golden_lights, test_lights, img, color_tolerance=80)
+    passed, marked_img, details = compare_boards(golden_lights, test_lights, img, color_tolerance=80)
 
     if passed:
         result = "Board passes the test ✅"
     else:
         result = "Board doesn’t pass the test ❌"
+    
+    print(f"Details: {details}")
 
     # Show results with matplotlib
     plt.imshow(cv2.cvtColor(marked_img, cv2.COLOR_BGR2RGB))
